@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HACPM - Home Assistant Chores, Plants & Maintenance</title>
+  <link rel="stylesheet" href="static/styles.css">
+
+  <!-- Lit via CDN (no build step needed) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "lit": "https://cdn.jsdelivr.net/npm/lit@3/+esm",
+      "lit/": "https://cdn.jsdelivr.net/npm/lit@3/",
+      "lit/decorators.js": "https://cdn.jsdelivr.net/npm/lit@3/decorators.js/+esm",
+      "lit/directives/repeat.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/repeat.js/+esm",
+      "lit/directives/class-map.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/class-map.js/+esm",
+      "lit/directives/when.js": "https://cdn.jsdelivr.net/npm/lit@3/directives/when.js/+esm"
+    }
+  }
+  </script>
+
+  <!-- Load app components -->
+  <script type="module" src="static/src/services/api.js"></script>
+  <script type="module" src="static/src/services/websocket.js"></script>
+  <script type="module" src="static/src/components/hacpm-app.js"></script>
+</head>
+<body>
+  <hacpm-app></hacpm-app>
+</body>
+</html>

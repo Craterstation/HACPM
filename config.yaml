@@ -1,0 +1,40 @@
+name: "HACPM - Home Assistant Chores, Plants & Maintenance"
+description: "Collaborative chore, plant, and home maintenance tracker with smart scheduling, gamification, and real-time sync."
+version: "0.1.0"
+slug: hacpm
+url: "https://github.com/craterstation/hacpm"
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+init: false
+homeassistant_api: true
+ingress: true
+ingress_port: 8099
+panel_icon: "mdi:clipboard-check-multiple"
+panel_title: "HACPM"
+map:
+  - share:rw
+  - media:rw
+options:
+  log_level: info
+  realtime_sync: true
+  default_points:
+    low: 1
+    medium: 3
+    high: 5
+    critical: 10
+schema:
+  log_level: "list(debug|info|warning|error)"
+  realtime_sync: bool
+  default_points:
+    low: "int(1,100)"
+    medium: "int(1,100)"
+    high: "int(1,100)"
+    critical: "int(1,100)"
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: "Web interface (managed by ingress)"

@@ -1,0 +1,18 @@
+configuration:
+  log_level:
+    name: Log Level
+    description: Set the logging verbosity level
+  realtime_sync:
+    name: Real-time Sync
+    description: Enable WebSocket-based real-time sync across all connected devices
+  default_points:
+    name: Default Points
+    description: Points awarded per task based on priority level
+    low:
+      name: Low Priority Points
+    medium:
+      name: Medium Priority Points
+    high:
+      name: High Priority Points
+    critical:
+      name: Critical Priority Points
