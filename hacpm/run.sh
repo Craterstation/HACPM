@@ -1,27 +1,37 @@
-#!/usr/bin/with-contenv bashio
+#!/usr/bin/env bash
 set -e
 
-bashio::log.info "Starting HACPM - Home Assistant Chores, Plants & Maintenance"
+CONFIG_PATH=/data/options.json
 
-# Read options from HA add-on config
-export HACPM_LOG_LEVEL=$(bashio::config 'log_level')
-export HACPM_REALTIME_SYNC=$(bashio::config 'realtime_sync')
-export HACPM_POINTS_LOW=$(bashio::config 'default_points.low')
-export HACPM_POINTS_MEDIUM=$(bashio::config 'default_points.medium')
-export HACPM_POINTS_HIGH=$(bashio::config 'default_points.high')
-export HACPM_POINTS_CRITICAL=$(bashio::config 'default_points.critical')
+echo "Starting HACPM - Home Assistant Chores, Plants & Maintenance"
+
+# Read options from HA add-on config (using jq instead of bashio)
+export HACPM_LOG_LEVEL=$(jq -r '.log_level // "info"' "$CONFIG_PATH")
+export HACPM_REALTIME_SYNC=$(jq -r '.realtime_sync // true' "$CONFIG_PATH")
+export HACPM_POINTS_LOW=$(jq -r '.default_points.low // 1' "$CONFIG_PATH")
+export HACPM_POINTS_MEDIUM=$(jq -r '.default_points.medium // 3' "$CONFIG_PATH")
+export HACPM_POINTS_HIGH=$(jq -r '.default_points.high // 5' "$CONFIG_PATH")
+export HACPM_POINTS_CRITICAL=$(jq -r '.default_points.critical // 10' "$CONFIG_PATH")
 
 # HA Supervisor token for API calls
 export SUPERVISOR_TOKEN="${SUPERVISOR_TOKEN}"
 export HACPM_DB_PATH="/data/db/hacpm.sqlite"
 export HACPM_PHOTOS_PATH="/data/photos"
-export HACPM_INGRESS_PATH=$(bashio::addon.ingress_entry)
+
+# Get ingress entry from supervisor API
+if [ -n "$SUPERVISOR_TOKEN" ]; then
+    INGRESS_ENTRY=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+        http://supervisor/addons/self/info 2>/dev/null | jq -r '.data.ingress_entry // ""' 2>/dev/null || echo "")
+    export HACPM_INGRESS_PATH="${INGRESS_ENTRY}"
+else
+    export HACPM_INGRESS_PATH=""
+fi
 
 # Ensure data directories exist
 mkdir -p /data/db /data/photos
 
-bashio::log.info "Log level: ${HACPM_LOG_LEVEL}"
-bashio::log.info "Ingress path: ${HACPM_INGRESS_PATH}"
+echo "Log level: ${HACPM_LOG_LEVEL}"
+echo "Ingress path: ${HACPM_INGRESS_PATH}"
 
 cd /app
 

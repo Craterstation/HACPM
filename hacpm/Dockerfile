@@ -1,20 +1,24 @@
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
-# Install system dependencies
+# Install build dependencies (needed for compiling Python packages like regex/dateparser)
 RUN apk add --no-cache \
     python3 \
     py3-pip \
-    py3-pillow \
-    sqlite
+    python3-dev \
+    gcc \
+    musl-dev \
+    jpeg-dev \
+    zlib-dev \
+    sqlite \
+    jq
 
-# Set up Python virtual environment
-RUN python3 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Install Python dependencies
+# Install Python dependencies system-wide
 COPY requirements.txt /tmp/
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
+
+# Remove build-only dependencies to reduce image size
+RUN apk del --no-cache python3-dev gcc musl-dev
 
 # Copy application
 COPY backend/ /app/backend/
