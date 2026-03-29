@@ -3,7 +3,7 @@ from sqlalchemy import (
     Column, Integer, String, Text, Float, Boolean, DateTime, ForeignKey,
     Enum as SAEnum, JSON, Table
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 import enum
 
 from .database import Base
@@ -117,8 +117,11 @@ class Task(Base):
     creator = relationship("User", back_populates="created_tasks", foreign_keys=[created_by])
     assignees = relationship("User", secondary=task_assignees, back_populates="assigned_tasks")
     labels = relationship("Label", secondary=task_labels, back_populates="tasks")
-    subtasks = relationship("Task", backref="parent_task", remote_side=[id], cascade="all, delete-orphan",
-                            single_parent=True)
+    subtasks = relationship(
+        "Task",
+        backref=backref("parent_task", remote_side="Task.id"),
+        cascade="all, delete-orphan",
+    )
     photos = relationship("TaskPhoto", back_populates="task", cascade="all, delete-orphan")
     completion_records = relationship("CompletionRecord", back_populates="task", cascade="all, delete-orphan")
     time_sessions = relationship("TimeSession", back_populates="task", cascade="all, delete-orphan")

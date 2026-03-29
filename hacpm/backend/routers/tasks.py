@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from ..database import get_db
 from ..models import (
-    Task, User, Label, TaskStatus, AssigneeRotation,
+    Task, User, Label, TaskStatus, RecurrenceMode, AssigneeRotation,
     CompletionRecord, TimeSession, task_assignees, task_labels,
 )
 from ..schemas import (
@@ -33,7 +33,7 @@ TASK_LOAD_OPTIONS = [
     selectinload(Task.labels),
     selectinload(Task.subtasks).selectinload(Task.subtasks),  # 2 levels of nesting
     selectinload(Task.photos),
-    selectinload(Task.rotation),
+    selectinload(Task.rotation).selectinload(AssigneeRotation.participants),
     selectinload(Task.time_sessions),
     selectinload(Task.creator),
 ]
@@ -221,13 +221,23 @@ async def create_task(data: TaskCreate, db: AsyncSession = Depends(get_db)):
 @router.post("/nlp", response_model=TaskResponse, status_code=201)
 async def create_task_from_nlp(data: TaskNLPCreate, db: AsyncSession = Depends(get_db)):
     """Create a task from natural language text."""
-    parsed = parse_task_text(data.text)
+    try:
+        parsed = parse_task_text(data.text)
+    except Exception:
+        # If NLP parsing fails, use raw text as title
+        from dataclasses import dataclass
+        @dataclass
+        class FallbackResult:
+            title: str = data.text
+            due_date: object = None
+            rrule: object = None
+        parsed = FallbackResult()
 
     task = Task(
         title=parsed.title,
         due_date=parsed.due_date,
         recurrence_rule=parsed.rrule,
-        recurrence_mode="due_date" if parsed.rrule else None,
+        recurrence_mode=RecurrenceMode.DUE_DATE if parsed.rrule else None,
         created_by=data.created_by,
     )
     db.add(task)
@@ -254,14 +264,17 @@ async def create_task_from_nlp(data: TaskNLPCreate, db: AsyncSession = Depends(g
 @router.post("/nlp/parse", response_model=NLPParseResult)
 async def parse_nlp_text(text: str):
     """Parse natural language text without creating a task (preview)."""
-    parsed = parse_task_text(text)
-    return NLPParseResult(
-        title=parsed.title,
-        due_date=parsed.due_date,
-        recurrence_rule=parsed.rrule,
-        recurrence_description=parsed.rrule_description,
-        confidence=parsed.confidence,
-    )
+    try:
+        parsed = parse_task_text(text)
+        return NLPParseResult(
+            title=parsed.title,
+            due_date=parsed.due_date,
+            recurrence_rule=parsed.rrule,
+            recurrence_description=parsed.rrule_description,
+            confidence=parsed.confidence,
+        )
+    except Exception:
+        return NLPParseResult(title=text, confidence=0.0)
 
 
 @router.put("/{task_id}", response_model=TaskResponse)
