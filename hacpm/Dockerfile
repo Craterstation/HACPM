@@ -6,8 +6,6 @@ RUN apk add --no-cache \
     python3 \
     py3-pip \
     py3-pillow \
-    nodejs \
-    npm \
     sqlite
 
 # Set up Python virtual environment
@@ -21,12 +19,9 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 # Copy application
 COPY backend/ /app/backend/
 COPY frontend/ /app/frontend/
-COPY run.sh /app/
+COPY run.sh /
 
-# Create data directories
-RUN mkdir -p /data/db /data/photos
+# Make run script executable
+RUN chmod a+x /run.sh
 
 WORKDIR /app
-RUN chmod a+x run.sh
-
-CMD ["/app/run.sh"]
