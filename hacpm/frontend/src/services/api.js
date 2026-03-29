@@ -5,8 +5,13 @@
 
 class HacpmApi {
   constructor() {
-    // In HA ingress, the base URL is relative to the ingress path
-    this.baseUrl = '';
+    // Detect ingress base path from current page URL
+    // HA ingress URLs look like: /api/hassio_ingress/TOKEN_HERE/
+    // We need to prefix all API calls with this path
+    let base = window.location.pathname;
+    // Remove trailing slash and any filename
+    base = base.replace(/\/+$/, '');
+    this.baseUrl = base;
   }
 
   async _fetch(path, options = {}) {
@@ -120,6 +125,10 @@ class HacpmApi {
   }
   getPhotoUrl(photoId) {
     return `${this.baseUrl}/api/photos/${photoId}`;
+  }
+
+  getBaseUrl() {
+    return this.baseUrl;
   }
   deletePhoto(photoId) {
     return this._fetch(`/photos/${photoId}`, { method: 'DELETE' });

@@ -16,10 +16,9 @@ class HacpmWebSocket {
   connect(userId = null) {
     this._userId = userId;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    let url = `${protocol}//${window.location.host}${window.location.pathname}`;
-    // Ensure trailing slash for path join
-    if (!url.endsWith('/')) url += '/';
-    url = url.replace(/\/+$/, '') + '/ws';
+    // Build WebSocket URL using the same ingress base path as the page
+    let basePath = window.location.pathname.replace(/\/+$/, '');
+    let url = `${protocol}//${window.location.host}${basePath}/ws`;
     if (userId) url += `?user_id=${userId}`;
 
     try {
