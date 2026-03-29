@@ -11,7 +11,8 @@ RUN apk add --no-cache \
     jpeg-dev \
     zlib-dev \
     sqlite \
-    jq
+    jq \
+    curl
 
 # Install Python dependencies system-wide
 COPY requirements.txt /tmp/
@@ -29,3 +30,5 @@ COPY run.sh /
 RUN chmod a+x /run.sh
 
 WORKDIR /app
+
+CMD ["/run.sh"]
