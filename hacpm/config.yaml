@@ -1,6 +1,6 @@
 name: "HACPM - Home Assistant Chores, Plants & Maintenance"
 description: "Collaborative chore, plant, and home maintenance tracker with smart scheduling, gamification, and real-time sync."
-version: "0.1.6"
+version: "0.1.7"
 slug: hacpm
 url: "https://github.com/craterstation/hacpm"
 arch:
