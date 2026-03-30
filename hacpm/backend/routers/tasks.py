@@ -1,10 +1,13 @@
 """Task management routes — the core of HACPM."""
 
 import datetime
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+logger = logging.getLogger("hacpm")
 
 from ..database import get_db
 from ..models import (
@@ -164,6 +167,17 @@ async def get_task(task_id: int, db: AsyncSession = Depends(get_db)):
 @router.post("/", response_model=TaskResponse, status_code=201)
 async def create_task(data: TaskCreate, db: AsyncSession = Depends(get_db)):
     """Create a new task."""
+    logger.info(f"Creating task: {data.title}")
+    try:
+        return await _create_task_impl(data, db)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error creating task: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create task: {str(e)}")
+
+
+async def _create_task_impl(data: TaskCreate, db: AsyncSession):
     task = Task(
         title=data.title,
         description=data.description,
@@ -223,6 +237,17 @@ async def create_task(data: TaskCreate, db: AsyncSession = Depends(get_db)):
 @router.post("/nlp", response_model=TaskResponse, status_code=201)
 async def create_task_from_nlp(data: TaskNLPCreate, db: AsyncSession = Depends(get_db)):
     """Create a task from natural language text."""
+    logger.info(f"Creating task from NLP: {data.text}")
+    try:
+        return await _create_task_from_nlp_impl(data, db)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error creating NLP task: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create task: {str(e)}")
+
+
+async def _create_task_from_nlp_impl(data: TaskNLPCreate, db: AsyncSession):
     try:
         parsed = parse_task_text(data.text)
     except Exception:
