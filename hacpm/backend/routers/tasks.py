@@ -220,7 +220,7 @@ async def _create_task_impl(data: TaskCreate, db: AsyncSession):
     await db.flush()
 
     # Reload with relationships
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task.id)
+    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task.id).execution_options(populate_existing=True)
     result = await db.execute(stmt)
     task = result.scalar_one()
 
@@ -279,7 +279,7 @@ async def _create_task_from_nlp_impl(data: TaskNLPCreate, db: AsyncSession):
 
     await db.flush()
 
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task.id)
+    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task.id).execution_options(populate_existing=True)
     result = await db.execute(stmt)
     task = result.scalar_one()
 
@@ -333,7 +333,7 @@ async def update_task(task_id: int, data: TaskUpdate, db: AsyncSession = Depends
     await db.flush()
 
     # Reload
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task.id)
+    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task.id).execution_options(populate_existing=True)
     result = await db.execute(stmt)
     task = result.scalar_one()
 
@@ -424,7 +424,7 @@ async def complete_task(
     await notify_task_completed(task.title, user_name, points)
 
     # Reload and broadcast
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task.id)
+    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task.id).execution_options(populate_existing=True)
     result = await db.execute(stmt)
     task = result.scalar_one()
     task_data = _build_task_response(task)
