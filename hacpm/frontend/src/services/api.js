@@ -126,6 +126,9 @@ class HacpmApi {
   getPhotoUrl(photoId) {
     return `${this.baseUrl}/api/photos/${photoId}`;
   }
+  getThumbnailUrl(photoId) {
+    return `${this.baseUrl}/api/photos/${photoId}/thumbnail`;
+  }
 
   getBaseUrl() {
     return this.baseUrl;

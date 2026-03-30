@@ -69,7 +69,6 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False)
-    display_name = Column(String(100), nullable=True)
     role = Column(SAEnum(UserRole), nullable=False, default=UserRole.KID)
     avatar = Column(String(255), nullable=True)
     pin = Column(String(10), nullable=True)  # Simple PIN for kid accounts
@@ -147,6 +146,7 @@ class TaskPhoto(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
     file_path = Column(String(500), nullable=False)
+    thumbnail_path = Column(String(500), nullable=True)
     filename = Column(String(255), nullable=False)
     uploaded_at = Column(DateTime, default=datetime.datetime.utcnow)
 

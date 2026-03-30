@@ -84,7 +84,7 @@ async def create_ha_todo_lists(db: AsyncSession):
             "/core/api/services/todo/add_item",
             {
                 "entity_id": entity_id,
-                "item": f"Welcome to HACPM, {user.display_name or user.name}!",
+                "item": f"Welcome to HACPM, {user.name}!",
                 "status": "completed",
             },
         )

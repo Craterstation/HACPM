@@ -177,7 +177,7 @@ class UserPicker extends LitElement {
                 @click=${() => this._selectUser(user)}
               >
                 <div class="user-avatar">${user.avatar || user.name?.[0] || '?'}</div>
-                <div class="user-name">${user.display_name || user.name}</div>
+                <div class="user-name">${user.name}</div>
                 <div class="user-role">${user.role}</div>
               </div>
             `)}

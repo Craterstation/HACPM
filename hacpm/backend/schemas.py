@@ -9,7 +9,6 @@ from .models import UserRole, TaskStatus, Priority, RecurrenceMode, RotationType
 
 class UserCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    display_name: Optional[str] = None
     role: UserRole = UserRole.KID
     avatar: Optional[str] = None
     pin: Optional[str] = None
@@ -17,7 +16,6 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
-    display_name: Optional[str] = None
     role: Optional[UserRole] = None
     avatar: Optional[str] = None
     pin: Optional[str] = None
@@ -27,7 +25,6 @@ class UserUpdate(BaseModel):
 class UserResponse(BaseModel):
     id: int
     name: str
-    display_name: Optional[str]
     role: UserRole
     avatar: Optional[str]
     is_active: bool
@@ -133,6 +130,7 @@ class SubtaskResponse(BaseModel):
 class PhotoResponse(BaseModel):
     id: int
     filename: str
+    has_thumbnail: bool = False
     uploaded_at: datetime.datetime
 
     model_config = {"from_attributes": True}

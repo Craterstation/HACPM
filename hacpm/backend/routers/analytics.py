@@ -113,7 +113,7 @@ async def get_user_stats(user_id: int, db: AsyncSession = Depends(get_db)):
 
     return UserStats(
         user_id=user_id,
-        user_name=user.display_name or user.name,
+        user_name=user.name,
         total_points=total_pts,
         tasks_completed=tasks_completed,
         tasks_pending=tasks_pending,

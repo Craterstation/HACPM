@@ -71,7 +71,7 @@ def _build_task_response(task: Task) -> dict:
         "parent_task_id": task.parent_task_id,
         "created_by": task.created_by,
         "assignees": [
-            {"id": u.id, "name": u.name, "display_name": u.display_name,
+            {"id": u.id, "name": u.name,
              "role": u.role.value, "avatar": u.avatar, "is_active": u.is_active,
              "total_points": 0, "created_at": u.created_at.isoformat()}
             for u in task.assignees
@@ -83,7 +83,9 @@ def _build_task_response(task: Task) -> dict:
         ],
         "subtasks": _build_subtasks(task.subtasks),
         "photos": [
-            {"id": p.id, "filename": p.filename, "uploaded_at": p.uploaded_at.isoformat()}
+            {"id": p.id, "filename": p.filename,
+             "has_thumbnail": bool(p.thumbnail_path),
+             "uploaded_at": p.uploaded_at.isoformat()}
             for p in task.photos
         ],
         "rotation": rotation_data,
@@ -213,7 +215,7 @@ async def create_task(data: TaskCreate, db: AsyncSession = Depends(get_db)):
 
     # Notify assignees
     for assignee in task.assignees:
-        await notify_task_assigned(task.title, assignee.display_name or assignee.name)
+        await notify_task_assigned(task.title, assignee.name)
 
     return task_data
 
@@ -392,7 +394,7 @@ async def complete_task(
 
     # Get completing user name for notification
     user = await db.get(User, data.user_id)
-    user_name = (user.display_name or user.name) if user else "Someone"
+    user_name = (user.name) if user else "Someone"
 
     await notify_task_completed(task.title, user_name, points)
 

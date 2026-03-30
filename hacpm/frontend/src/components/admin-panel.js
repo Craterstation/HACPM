@@ -14,7 +14,6 @@ class AdminPanel extends LitElement {
     _tab: { type: String, state: true },
     // User form
     _userName: { type: String, state: true },
-    _userDisplayName: { type: String, state: true },
     _userRole: { type: String, state: true },
     _userPin: { type: String, state: true },
     _editingUserId: { type: Number, state: true },
@@ -162,7 +161,6 @@ class AdminPanel extends LitElement {
 
   _resetUserForm() {
     this._userName = '';
-    this._userDisplayName = '';
     this._userRole = 'kid';
     this._userPin = '';
     this._editingUserId = null;
@@ -203,12 +201,6 @@ class AdminPanel extends LitElement {
             placeholder="e.g., john">
         </div>
         <div class="form-field">
-          <label>Display Name</label>
-          <input type="text" .value=${this._userDisplayName}
-            @input=${(e) => { this._userDisplayName = e.target.value; }}
-            placeholder="e.g., John">
-        </div>
-        <div class="form-field">
           <label>Role</label>
           <select .value=${this._userRole} @change=${(e) => { this._userRole = e.target.value; }}>
             <option value="parent">Parent (Admin)</option>
@@ -235,7 +227,7 @@ class AdminPanel extends LitElement {
             <div class="item-info">
               <div class="item-avatar ${user.role}">${user.name?.[0] || '?'}</div>
               <div>
-                <div class="item-name">${user.display_name || user.name}</div>
+                <div class="item-name">${user.name}</div>
                 <div class="item-meta">${user.role} ${user.pin ? '(PIN set)' : ''} &middot; ${user.total_points || 0} pts</div>
               </div>
             </div>
@@ -301,7 +293,6 @@ class AdminPanel extends LitElement {
   _editUser(user) {
     this._editingUserId = user.id;
     this._userName = user.name;
-    this._userDisplayName = user.display_name || '';
     this._userRole = user.role;
     this._userPin = user.pin || '';
   }
@@ -315,7 +306,6 @@ class AdminPanel extends LitElement {
     try {
       const data = {
         name: this._userName,
-        display_name: this._userDisplayName || null,
         role: this._userRole,
         pin: this._userPin || null,
       };

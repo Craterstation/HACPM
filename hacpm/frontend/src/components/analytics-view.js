@@ -245,7 +245,7 @@ class AnalyticsView extends LitElement {
           <option value="">Select a user</option>
           ${this.users.map(u => html`
             <option value=${u.id} ?selected=${u.id === this._selectedUserId}>
-              ${u.display_name || u.name}
+              ${u.name}
             </option>
           `)}
         </select>
