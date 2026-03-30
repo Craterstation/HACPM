@@ -333,7 +333,7 @@ class TaskDetail extends LitElement {
         <div class="meta-item" style="margin-bottom: 12px;">
           <div class="meta-label">Assigned To</div>
           <div>${t.assignees.length > 0
-            ? t.assignees.map(u => html`<span class="assignee-chip">${u.display_name || u.name}</span>`)
+            ? t.assignees.map(u => html`<span class="assignee-chip">${u.name}</span>`)
             : 'Unassigned'
           }</div>
         </div>

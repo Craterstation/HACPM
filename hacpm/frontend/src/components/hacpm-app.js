@@ -98,6 +98,20 @@ class HacpmApp extends LitElement {
       font-size: 12px;
       font-weight: 600;
     }
+    .header-icon-btn {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .header-icon-btn:hover { background: rgba(255,255,255,0.3); }
 
     /* Main content */
     .main {
@@ -377,10 +391,13 @@ class HacpmApp extends LitElement {
           </h1>
           <div class="header-actions">
             ${this.currentUser ? html`
+              ${this.isAdmin ? html`
+                <button class="header-icon-btn" @click=${() => this._navigate('admin')} title="Admin Panel">&#x2699;</button>
+              ` : ''}
               <span class="points-badge">${this.currentUser.total_points || 0} pts</span>
               <button class="user-badge" @click=${this._switchUser}>
                 <span class="avatar">${this.currentUser.name?.[0] || '?'}</span>
-                ${this.currentUser.display_name || this.currentUser.name}
+                ${this.currentUser.name}
               </button>
             ` : ''}
           </div>

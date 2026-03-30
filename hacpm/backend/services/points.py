@@ -64,7 +64,6 @@ async def get_leaderboard(db: AsyncSession, limit: int = 10) -> list[dict]:
         select(
             User.id,
             User.name,
-            User.display_name,
             User.avatar,
             func.coalesce(func.sum(CompletionRecord.points_earned), 0).label("total_points"),
             func.count(CompletionRecord.id).label("tasks_completed"),
@@ -79,7 +78,7 @@ async def get_leaderboard(db: AsyncSession, limit: int = 10) -> list[dict]:
     return [
         {
             "user_id": row.id,
-            "name": row.display_name or row.name,
+            "name": row.name,
             "avatar": row.avatar,
             "total_points": row.total_points,
             "tasks_completed": row.tasks_completed,

@@ -179,6 +179,14 @@ class TaskList extends LitElement {
       font-size: 11px;
       color: #7c4dff;
     }
+
+    .task-thumb {
+      width: 40px;
+      height: 40px;
+      border-radius: 6px;
+      object-fit: cover;
+      flex-shrink: 0;
+    }
   `;
 
   constructor() {
@@ -255,7 +263,7 @@ class TaskList extends LitElement {
         </select>
         <select @change=${(e) => { this.filterAssignee = e.target.value; }}>
           <option value="">All Assignees</option>
-          ${this.users.map(u => html`<option value=${u.id}>${u.display_name || u.name}</option>`)}
+          ${this.users.map(u => html`<option value=${u.id}>${u.name}</option>`)}
         </select>
       </div>
 
@@ -290,13 +298,17 @@ class TaskList extends LitElement {
 
         <span class="priority-dot priority-${task.priority}"></span>
 
+        ${task.photos?.find(p => p.has_thumbnail) ? html`
+          <img class="task-thumb" src="${api.getThumbnailUrl(task.photos.find(p => p.has_thumbnail).id)}" alt="">
+        ` : ''}
+
         <div class="task-info">
           <div class="task-title">${task.title}</div>
           <div class="task-meta">
             ${dueStr ? html`<span class="due-date ${isOverdue ? 'overdue' : ''} ${this._isToday(task.due_date) ? 'today' : ''}">${dueStr}</span>` : ''}
             ${task.recurrence_rule ? html`<span class="recurrence-badge">&#x1f504; Recurring</span>` : ''}
             ${task.labels.map(l => html`<span class="label-chip" style="background:${l.color}">${l.name}</span>`)}
-            ${task.assignees.map(u => html`<span class="assignee-chip">${u.display_name || u.name}</span>`)}
+            ${task.assignees.map(u => html`<span class="assignee-chip">${u.name}</span>`)}
             ${task.subtasks.length > 0 ? html`
               <span class="subtask-count">
                 ${task.subtasks.filter(s => s.status === 'completed').length}/${task.subtasks.length} subtasks

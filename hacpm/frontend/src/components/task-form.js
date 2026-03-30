@@ -275,7 +275,7 @@ class TaskForm extends LitElement {
               class="chip ${this.selectedAssignees.includes(u.id) ? 'selected' : ''}"
               @click=${() => this._toggleAssignee(u.id)}
             >
-              ${u.display_name || u.name}
+              ${u.name}
             </button>
           `)}
         </div>
