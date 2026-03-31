@@ -3,7 +3,7 @@
 import datetime
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, or_
+from sqlalchemy import select, insert, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,6 +13,7 @@ from ..database import get_db, async_session
 from ..models import (
     Task, User, Label, TaskStatus, RecurrenceMode, AssigneeRotation,
     CompletionRecord, TimeSession, task_assignees, task_labels,
+    rotation_participants,
 )
 from ..schemas import (
     TaskCreate, TaskNLPCreate, TaskUpdate, TaskResponse, TaskCompleteRequest,
@@ -43,11 +44,7 @@ TASK_LOAD_OPTIONS = [
 
 
 async def _load_task_response(task_id: int) -> dict:
-    """Load a task with all relationships in a clean session.
-
-    Uses a brand-new session with an empty identity map so that
-    selectinload works without any lazy-load interference.
-    """
+    """Load a task in a clean session and build response dict."""
     async with async_session() as session:
         stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task_id)
         result = await session.execute(stmt)
@@ -97,7 +94,17 @@ def _build_task_response(task: Task) -> dict:
              "created_at": l.created_at.isoformat()}
             for l in task.labels
         ],
-        "subtasks": _build_subtasks(task.subtasks),
+        "subtasks": [
+            {
+                "id": st.id, "title": st.title, "description": st.description,
+                "status": st.status.value, "priority": st.priority.value,
+                "points": st.points,
+                "due_date": st.due_date.isoformat() if st.due_date else None,
+                "completed_at": st.completed_at.isoformat() if st.completed_at else None,
+                "subtasks": [],
+            }
+            for st in task.subtasks
+        ],
         "photos": [
             {"id": p.id, "filename": p.filename,
              "has_thumbnail": bool(p.thumbnail_path),
@@ -111,24 +118,6 @@ def _build_task_response(task: Task) -> dict:
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
         "can_complete": completable,
     }
-
-
-def _build_subtasks(subtasks: list) -> list[dict]:
-    """Recursively build subtask data."""
-    result = []
-    for st in subtasks:
-        result.append({
-            "id": st.id,
-            "title": st.title,
-            "description": st.description,
-            "status": st.status.value,
-            "priority": st.priority.value,
-            "points": st.points,
-            "due_date": st.due_date.isoformat() if st.due_date else None,
-            "completed_at": st.completed_at.isoformat() if st.completed_at else None,
-            "subtasks": [],
-        })
-    return result
 
 
 # ── Task CRUD ──
@@ -197,15 +186,12 @@ async def create_task(data: TaskCreate, db: AsyncSession = Depends(get_db)):
         db.add(task)
         await db.flush()
 
-        # Assign users
-        if data.assignee_ids:
-            users = await db.execute(select(User).where(User.id.in_(data.assignee_ids)))
-            task.assignees = list(users.scalars().all())
-
-        # Assign labels
-        if data.label_ids:
-            labels = await db.execute(select(Label).where(Label.id.in_(data.label_ids)))
-            task.labels = list(labels.scalars().all())
+        # Use direct SQL for association tables — avoids lazy-load on
+        # relationship attributes which causes greenlet_spawn errors.
+        for uid in (data.assignee_ids or []):
+            await db.execute(insert(task_assignees).values(task_id=task.id, user_id=uid))
+        for lid in (data.label_ids or []):
+            await db.execute(insert(task_labels).values(task_id=task.id, label_id=lid))
 
         # Set up rotation
         if data.rotation:
@@ -215,21 +201,17 @@ async def create_task(data: TaskCreate, db: AsyncSession = Depends(get_db)):
             )
             db.add(rotation)
             await db.flush()
-            if data.rotation.participant_ids:
-                participants = await db.execute(
-                    select(User).where(User.id.in_(data.rotation.participant_ids))
+            for uid in (data.rotation.participant_ids or []):
+                await db.execute(
+                    insert(rotation_participants).values(rotation_id=rotation.id, user_id=uid)
                 )
-                rotation.participants = list(participants.scalars().all())
 
-        # Commit writes so the fresh read session can see them
         task_id = task.id
         await db.commit()
 
-        # Load response in a clean session (no identity map pollution)
         task_data = await _load_task_response(task_id)
         await sync.broadcast_task_created(task_data)
 
-        # Notify assignees
         for assignee in task_data.get("assignees", []):
             await notify_task_assigned(task_data["title"], assignee["name"])
 
@@ -267,12 +249,10 @@ async def create_task_from_nlp(data: TaskNLPCreate, db: AsyncSession = Depends(g
         db.add(task)
         await db.flush()
 
-        if data.assignee_ids:
-            users = await db.execute(select(User).where(User.id.in_(data.assignee_ids)))
-            task.assignees = list(users.scalars().all())
-        if data.label_ids:
-            labels = await db.execute(select(Label).where(Label.id.in_(data.label_ids)))
-            task.labels = list(labels.scalars().all())
+        for uid in (data.assignee_ids or []):
+            await db.execute(insert(task_assignees).values(task_id=task.id, user_id=uid))
+        for lid in (data.label_ids or []):
+            await db.execute(insert(task_labels).values(task_id=task.id, label_id=lid))
 
         task_id = task.id
         await db.commit()
@@ -306,33 +286,32 @@ async def parse_nlp_text(text: str):
 @router.put("/{task_id}", response_model=TaskResponse)
 async def update_task(task_id: int, data: TaskUpdate, db: AsyncSession = Depends(get_db)):
     """Update a task."""
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task_id)
-    result = await db.execute(stmt)
-    task = result.scalar_one_or_none()
+    task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
     update_data = data.model_dump(exclude_unset=True)
 
-    # Handle assignee updates
+    # Handle assignee updates via direct SQL
     if "assignee_ids" in update_data:
         ids = update_data.pop("assignee_ids")
-        users = await db.execute(select(User).where(User.id.in_(ids)))
-        task.assignees = list(users.scalars().all())
+        await db.execute(delete(task_assignees).where(task_assignees.c.task_id == task_id))
+        for uid in ids:
+            await db.execute(insert(task_assignees).values(task_id=task_id, user_id=uid))
 
-    # Handle label updates
+    # Handle label updates via direct SQL
     if "label_ids" in update_data:
         ids = update_data.pop("label_ids")
-        labels = await db.execute(select(Label).where(Label.id.in_(ids)))
-        task.labels = list(labels.scalars().all())
+        await db.execute(delete(task_labels).where(task_labels.c.task_id == task_id))
+        for lid in ids:
+            await db.execute(insert(task_labels).values(task_id=task_id, label_id=lid))
 
     for field, value in update_data.items():
         setattr(task, field, value)
 
-    tid = task.id
     await db.commit()
 
-    task_data = await _load_task_response(tid)
+    task_data = await _load_task_response(task_id)
     await sync.broadcast_task_updated(task_data)
     return task_data
 
@@ -356,14 +335,13 @@ async def complete_task(
     data: TaskCompleteRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Mark a task as completed. Handles recurring tasks, subtask reset, rotation, and points."""
+    """Mark a task as completed."""
     stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task_id)
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    # Check completion restriction
     if not can_complete_task(task.due_date, task.completion_restriction_hours):
         hours = task.completion_restriction_hours
         raise HTTPException(
@@ -374,7 +352,6 @@ async def complete_task(
     now = datetime.datetime.utcnow()
     points = get_effective_points(task)
 
-    # Record completion
     record = CompletionRecord(
         task_id=task.id,
         user_id=data.user_id,
@@ -384,7 +361,6 @@ async def complete_task(
     )
     db.add(record)
 
-    # Handle recurring task
     if task.recurrence_rule:
         next_due = compute_next_due_date(
             task.recurrence_rule,
@@ -396,27 +372,27 @@ async def complete_task(
         task.status = TaskStatus.PENDING
         task.completed_at = None
 
-        # Reset all subtasks
         await _reset_subtasks(db, task.id)
 
-        # Advance rotation if configured
         if task.rotation:
             next_assignee_id = await advance_rotation(db, task.rotation)
             if next_assignee_id:
-                user = await db.get(User, next_assignee_id)
-                if user:
-                    task.assignees = [user]
+                # Direct SQL instead of relationship assignment
+                await db.execute(
+                    delete(task_assignees).where(task_assignees.c.task_id == task.id)
+                )
+                await db.execute(
+                    insert(task_assignees).values(task_id=task.id, user_id=next_assignee_id)
+                )
     else:
         task.status = TaskStatus.COMPLETED
         task.completed_at = now
 
     await db.flush()
 
-    # Get completing user name for notification
     user = await db.get(User, data.user_id)
     user_name = (user.name) if user else "Someone"
 
-    # Save record data before committing (will be detached after)
     completion_data = {
         "id": record.id,
         "task_id": record.task_id,
@@ -431,7 +407,6 @@ async def complete_task(
     await db.commit()
 
     await notify_task_completed(task_title, user_name, points)
-
     task_data = await _load_task_response(tid)
     await sync.broadcast_task_completed(task_data, completion_data)
 
@@ -439,14 +414,16 @@ async def complete_task(
 
 
 async def _reset_subtasks(db: AsyncSession, parent_id: int):
-    """Recursively reset all subtasks to pending."""
-    stmt = select(Task).where(Task.parent_task_id == parent_id)
+    """Reset all subtasks to pending using direct SQL."""
+    stmt = select(Task.id).where(Task.parent_task_id == parent_id)
     result = await db.execute(stmt)
-    subtasks = result.scalars().all()
-    for st in subtasks:
-        st.status = TaskStatus.PENDING
-        st.completed_at = None
-        await _reset_subtasks(db, st.id)
+    child_ids = [row[0] for row in result.all()]
+    for cid in child_ids:
+        child = await db.get(Task, cid)
+        if child:
+            child.status = TaskStatus.PENDING
+            child.completed_at = None
+        await _reset_subtasks(db, cid)
 
 
 # ── Time Tracking ──
