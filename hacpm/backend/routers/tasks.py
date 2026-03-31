@@ -219,8 +219,13 @@ async def _create_task_impl(data: TaskCreate, db: AsyncSession):
 
     await db.flush()
 
+    # Clear identity map so the reload creates fresh objects with all
+    # relationships eagerly loaded (prevents greenlet_spawn errors).
+    task_id = task.id
+    db.expunge_all()
+
     # Reload with relationships
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task.id).execution_options(populate_existing=True)
+    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task_id)
     result = await db.execute(stmt)
     task = result.scalar_one()
 
@@ -279,7 +284,10 @@ async def _create_task_from_nlp_impl(data: TaskNLPCreate, db: AsyncSession):
 
     await db.flush()
 
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task.id).execution_options(populate_existing=True)
+    task_id = task.id
+    db.expunge_all()
+
+    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task_id)
     result = await db.execute(stmt)
     task = result.scalar_one()
 
@@ -333,7 +341,10 @@ async def update_task(task_id: int, data: TaskUpdate, db: AsyncSession = Depends
     await db.flush()
 
     # Reload
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task.id).execution_options(populate_existing=True)
+    task_id = task.id
+    db.expunge_all()
+
+    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task_id)
     result = await db.execute(stmt)
     task = result.scalar_one()
 
@@ -421,14 +432,9 @@ async def complete_task(
     user = await db.get(User, data.user_id)
     user_name = (user.name) if user else "Someone"
 
-    await notify_task_completed(task.title, user_name, points)
-
-    # Reload and broadcast
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task.id).execution_options(populate_existing=True)
-    result = await db.execute(stmt)
-    task = result.scalar_one()
-    task_data = _build_task_response(task)
-
+    # Save record data before expunging
+    task_id = task.id
+    task_title = task.title
     completion_data = {
         "id": record.id,
         "task_id": record.task_id,
@@ -437,6 +443,16 @@ async def complete_task(
         "points_earned": record.points_earned,
         "notes": record.notes,
     }
+
+    await notify_task_completed(task_title, user_name, points)
+
+    # Reload and broadcast
+    db.expunge_all()
+
+    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalar_one()
+    task_data = _build_task_response(task)
     await sync.broadcast_task_completed(task_data, completion_data)
 
     return completion_data
