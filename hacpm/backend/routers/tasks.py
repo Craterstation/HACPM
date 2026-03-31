@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger("hacpm")
 
-from ..database import get_db
+from ..database import get_db, async_session
 from ..models import (
     Task, User, Label, TaskStatus, RecurrenceMode, AssigneeRotation,
     CompletionRecord, TimeSession, task_assignees, task_labels,
@@ -34,12 +34,25 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 TASK_LOAD_OPTIONS = [
     selectinload(Task.assignees),
     selectinload(Task.labels),
-    selectinload(Task.subtasks).selectinload(Task.subtasks),  # 2 levels of nesting
+    selectinload(Task.subtasks),
     selectinload(Task.photos),
     selectinload(Task.rotation).selectinload(AssigneeRotation.participants),
     selectinload(Task.time_sessions),
     selectinload(Task.creator),
 ]
+
+
+async def _load_task_response(task_id: int) -> dict:
+    """Load a task with all relationships in a clean session.
+
+    Uses a brand-new session with an empty identity map so that
+    selectinload works without any lazy-load interference.
+    """
+    async with async_session() as session:
+        stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task_id)
+        result = await session.execute(stmt)
+        task = result.scalar_one()
+        return _build_task_response(task)
 
 
 def _build_task_response(task: Task) -> dict:
@@ -113,7 +126,7 @@ def _build_subtasks(subtasks: list) -> list[dict]:
             "points": st.points,
             "due_date": st.due_date.isoformat() if st.due_date else None,
             "completed_at": st.completed_at.isoformat() if st.completed_at else None,
-            "subtasks": _build_subtasks(st.subtasks) if hasattr(st, "subtasks") and st.subtasks else [],
+            "subtasks": [],
         })
     return result
 
@@ -169,7 +182,58 @@ async def create_task(data: TaskCreate, db: AsyncSession = Depends(get_db)):
     """Create a new task."""
     logger.info(f"Creating task: {data.title}")
     try:
-        return await _create_task_impl(data, db)
+        task = Task(
+            title=data.title,
+            description=data.description,
+            priority=data.priority,
+            points=data.points,
+            due_date=data.due_date,
+            recurrence_rule=data.recurrence_rule,
+            recurrence_mode=data.recurrence_mode,
+            completion_restriction_hours=data.completion_restriction_hours,
+            parent_task_id=data.parent_task_id,
+            created_by=data.created_by,
+        )
+        db.add(task)
+        await db.flush()
+
+        # Assign users
+        if data.assignee_ids:
+            users = await db.execute(select(User).where(User.id.in_(data.assignee_ids)))
+            task.assignees = list(users.scalars().all())
+
+        # Assign labels
+        if data.label_ids:
+            labels = await db.execute(select(Label).where(Label.id.in_(data.label_ids)))
+            task.labels = list(labels.scalars().all())
+
+        # Set up rotation
+        if data.rotation:
+            rotation = AssigneeRotation(
+                task_id=task.id,
+                rotation_type=data.rotation.rotation_type,
+            )
+            db.add(rotation)
+            await db.flush()
+            if data.rotation.participant_ids:
+                participants = await db.execute(
+                    select(User).where(User.id.in_(data.rotation.participant_ids))
+                )
+                rotation.participants = list(participants.scalars().all())
+
+        # Commit writes so the fresh read session can see them
+        task_id = task.id
+        await db.commit()
+
+        # Load response in a clean session (no identity map pollution)
+        task_data = await _load_task_response(task_id)
+        await sync.broadcast_task_created(task_data)
+
+        # Notify assignees
+        for assignee in task_data.get("assignees", []):
+            await notify_task_assigned(task_data["title"], assignee["name"])
+
+        return task_data
     except HTTPException:
         raise
     except Exception as e:
@@ -177,123 +241,50 @@ async def create_task(data: TaskCreate, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to create task: {str(e)}")
 
 
-async def _create_task_impl(data: TaskCreate, db: AsyncSession):
-    task = Task(
-        title=data.title,
-        description=data.description,
-        priority=data.priority,
-        points=data.points,
-        due_date=data.due_date,
-        recurrence_rule=data.recurrence_rule,
-        recurrence_mode=data.recurrence_mode,
-        completion_restriction_hours=data.completion_restriction_hours,
-        parent_task_id=data.parent_task_id,
-        created_by=data.created_by,
-    )
-    db.add(task)
-    await db.flush()
-
-    # Assign users
-    if data.assignee_ids:
-        users = await db.execute(select(User).where(User.id.in_(data.assignee_ids)))
-        task.assignees = list(users.scalars().all())
-
-    # Assign labels
-    if data.label_ids:
-        labels = await db.execute(select(Label).where(Label.id.in_(data.label_ids)))
-        task.labels = list(labels.scalars().all())
-
-    # Set up rotation
-    if data.rotation:
-        rotation = AssigneeRotation(
-            task_id=task.id,
-            rotation_type=data.rotation.rotation_type,
-        )
-        db.add(rotation)
-        await db.flush()
-        if data.rotation.participant_ids:
-            participants = await db.execute(
-                select(User).where(User.id.in_(data.rotation.participant_ids))
-            )
-            rotation.participants = list(participants.scalars().all())
-
-    await db.flush()
-
-    # Clear identity map so the reload creates fresh objects with all
-    # relationships eagerly loaded (prevents greenlet_spawn errors).
-    task_id = task.id
-    db.expunge_all()
-
-    # Reload with relationships
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task_id)
-    result = await db.execute(stmt)
-    task = result.scalar_one()
-
-    task_data = _build_task_response(task)
-    await sync.broadcast_task_created(task_data)
-
-    # Notify assignees
-    for assignee in task.assignees:
-        await notify_task_assigned(task.title, assignee.name)
-
-    return task_data
-
-
 @router.post("/nlp", response_model=TaskResponse, status_code=201)
 async def create_task_from_nlp(data: TaskNLPCreate, db: AsyncSession = Depends(get_db)):
     """Create a task from natural language text."""
     logger.info(f"Creating task from NLP: {data.text}")
     try:
-        return await _create_task_from_nlp_impl(data, db)
+        try:
+            parsed = parse_task_text(data.text)
+        except Exception:
+            from dataclasses import dataclass
+            @dataclass
+            class FallbackResult:
+                title: str = data.text
+                due_date: object = None
+                rrule: object = None
+            parsed = FallbackResult()
+
+        task = Task(
+            title=parsed.title,
+            due_date=parsed.due_date,
+            recurrence_rule=parsed.rrule,
+            recurrence_mode=RecurrenceMode.DUE_DATE if parsed.rrule else None,
+            created_by=data.created_by,
+        )
+        db.add(task)
+        await db.flush()
+
+        if data.assignee_ids:
+            users = await db.execute(select(User).where(User.id.in_(data.assignee_ids)))
+            task.assignees = list(users.scalars().all())
+        if data.label_ids:
+            labels = await db.execute(select(Label).where(Label.id.in_(data.label_ids)))
+            task.labels = list(labels.scalars().all())
+
+        task_id = task.id
+        await db.commit()
+
+        task_data = await _load_task_response(task_id)
+        await sync.broadcast_task_created(task_data)
+        return task_data
     except HTTPException:
         raise
     except Exception as e:
         logger.exception(f"Error creating NLP task: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create task: {str(e)}")
-
-
-async def _create_task_from_nlp_impl(data: TaskNLPCreate, db: AsyncSession):
-    try:
-        parsed = parse_task_text(data.text)
-    except Exception:
-        # If NLP parsing fails, use raw text as title
-        from dataclasses import dataclass
-        @dataclass
-        class FallbackResult:
-            title: str = data.text
-            due_date: object = None
-            rrule: object = None
-        parsed = FallbackResult()
-
-    task = Task(
-        title=parsed.title,
-        due_date=parsed.due_date,
-        recurrence_rule=parsed.rrule,
-        recurrence_mode=RecurrenceMode.DUE_DATE if parsed.rrule else None,
-        created_by=data.created_by,
-    )
-    db.add(task)
-    await db.flush()
-
-    if data.assignee_ids:
-        users = await db.execute(select(User).where(User.id.in_(data.assignee_ids)))
-        task.assignees = list(users.scalars().all())
-    if data.label_ids:
-        labels = await db.execute(select(Label).where(Label.id.in_(data.label_ids)))
-        task.labels = list(labels.scalars().all())
-
-    await db.flush()
-
-    task_id = task.id
-    db.expunge_all()
-
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task_id)
-    result = await db.execute(stmt)
-    task = result.scalar_one()
-
-    task_data = _build_task_response(task)
-    await sync.broadcast_task_created(task_data)
-    return task_data
 
 
 @router.post("/nlp/parse", response_model=NLPParseResult)
@@ -338,17 +329,10 @@ async def update_task(task_id: int, data: TaskUpdate, db: AsyncSession = Depends
     for field, value in update_data.items():
         setattr(task, field, value)
 
-    await db.flush()
+    tid = task.id
+    await db.commit()
 
-    # Reload
-    task_id = task.id
-    db.expunge_all()
-
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task_id)
-    result = await db.execute(stmt)
-    task = result.scalar_one()
-
-    task_data = _build_task_response(task)
+    task_data = await _load_task_response(tid)
     await sync.broadcast_task_updated(task_data)
     return task_data
 
@@ -432,9 +416,7 @@ async def complete_task(
     user = await db.get(User, data.user_id)
     user_name = (user.name) if user else "Someone"
 
-    # Save record data before expunging
-    task_id = task.id
-    task_title = task.title
+    # Save record data before committing (will be detached after)
     completion_data = {
         "id": record.id,
         "task_id": record.task_id,
@@ -443,16 +425,14 @@ async def complete_task(
         "points_earned": record.points_earned,
         "notes": record.notes,
     }
+    task_title = task.title
+    tid = task.id
+
+    await db.commit()
 
     await notify_task_completed(task_title, user_name, points)
 
-    # Reload and broadcast
-    db.expunge_all()
-
-    stmt = select(Task).options(*TASK_LOAD_OPTIONS).where(Task.id == task_id)
-    result = await db.execute(stmt)
-    task = result.scalar_one()
-    task_data = _build_task_response(task)
+    task_data = await _load_task_response(tid)
     await sync.broadcast_task_completed(task_data, completion_data)
 
     return completion_data
